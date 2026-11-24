@@ -1,0 +1,5 @@
+Version: 5
+
+Source: https://github.com/fonttools/pyclipper/tags
+Matching-Pattern: (?:.*?/)?v?@ANY_VERSION@@ARCHIVE_EXT@
+Filenamemangle: s%(?:.*?)?v?@ANY_VERSION@(@ARCHIVE_EXT@)%@PACKAGE@-$1$2%
