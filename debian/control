@@ -5,7 +5,7 @@ Maintainer: Debian Fonts Task Force <debian-fonts@lists.debian.org>
 Uploaders:
  Jeremy Bicha <jbicha@debian.org>,
 Build-Depends:
- cython3,
+ cython3 (>= 3.1),
  debhelper-compat (= 13),
  dh-sequence-python3,
  pybuild-plugin-pyproject,

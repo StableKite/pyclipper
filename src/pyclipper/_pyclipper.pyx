@@ -1,5 +1,6 @@
 # distutils: language=c++
 # cython: language_level=2
+# cython: freethreading_compatible=True
 """
 Cython wrapper for the C++ translation of the Angus Johnson's Clipper
 library (ver. 6.2.1) (http://www.angusj.com/delphi/clipper.php)
@@ -24,6 +25,7 @@ import unicodedata as _unicodedata
 import time as _time
 import warnings as _warnings
 import numbers as _numbers
+from threading import Lock as _Lock
 
 from cython.operator cimport dereference as deref
 
@@ -597,6 +599,7 @@ cdef class Pyclipper:
     More info: http://www.angusj.com/delphi/clipper/documentation/Docs/Units/ClipperLib/Classes/Clipper/_Body.htm
     """
     cdef Clipper *thisptr  # hold a C++ instance which we're wrapping
+    cdef object _lock
     def __cinit__(self):
         """ Creates an instance of the Clipper class. InitOptions from the Clipper class
         are substituted with separate properties.
@@ -605,6 +608,7 @@ cdef class Pyclipper:
         """
 
         log_action("Creating a Clipper instance")
+        self._lock = _Lock()
         self.thisptr = new Clipper()
 
     def __dealloc__(self):
@@ -627,7 +631,10 @@ cdef class Pyclipper:
         ClipperException -- if path is invalid for clipping
         """
         cdef Path c_path = _to_clipper_path(path)
-        cdef bint result = <bint> self.thisptr.AddPath(c_path, poly_type, <bint> closed)
+        cdef bint result
+        cdef bint c_closed = closed
+        with self._lock:
+            result = <bint> self.thisptr.AddPath(c_path, poly_type, c_closed)
         if not result:
             raise ClipperException('The path is invalid for clipping')
         return result
@@ -648,7 +655,10 @@ cdef class Pyclipper:
         ClipperException -- all paths are invalid for clipping
         """
         cdef Paths c_paths = _to_clipper_paths(paths)
-        cdef bint result = <bint> self.thisptr.AddPaths(c_paths, poly_type, <bint> closed)
+        cdef bint result
+        cdef bint c_closed = closed
+        with self._lock:
+            result = <bint> self.thisptr.AddPaths(c_paths, poly_type, c_closed)
         if not result:
             raise ClipperException('All paths are invalid for clipping')
         return result
@@ -657,7 +667,8 @@ cdef class Pyclipper:
         """ Removes all subject and clip polygons.
         More info: http://www.angusj.com/delphi/clipper/documentation/Docs/Units/ClipperLib/Classes/ClipperBase/Methods/Clear.htm
         """
-        self.thisptr.Clear()
+        with self._lock:
+            self.thisptr.Clear()
 
     def GetBounds(self):
         """ Returns an axis-aligned bounding rectangle that bounds all added polygons.
@@ -667,7 +678,7 @@ cdef class Pyclipper:
         PyIntRect with left, right, bottom, top vertices that define the axis-aligned bounding rectangle.
         """
         cdef IntRect rr
-        with nogil:
+        with self._lock, nogil:
             rr = <IntRect> self.thisptr.GetBounds()
         return PyIntRect(left=rr.left, top=rr.top,
                          right=rr.right, bottom=rr.bottom)
@@ -691,7 +702,7 @@ cdef class Pyclipper:
 
         cdef Paths solution
         cdef bint success
-        with nogil:
+        with self._lock, nogil:
             success = <bint> self.thisptr.Execute(clip_type, solution, subj_fill_type, clip_fill_type)
         if not success:
             raise ClipperException('Execution of clipper did not succeed!')
@@ -715,7 +726,7 @@ cdef class Pyclipper:
         """
         cdef PolyTree solution
         cdef bint success
-        with nogil:
+        with self._lock, nogil:
             success = <bint> self.thisptr.Execute(clip_type, solution, subj_fill_type, clip_fill_type)
         if not success:
             raise ClipperException('Execution of clipper did not succeed!')
@@ -727,30 +738,39 @@ cdef class Pyclipper:
         More info: http://www.angusj.com/delphi/clipper/documentation/Docs/Units/ClipperLib/Classes/Clipper/Properties/ReverseSolution.htm
         """
         def __get__(self):
-            return <bint> self.thisptr.ReverseSolution()
+            with self._lock:
+                return <bint> self.thisptr.ReverseSolution()
 
         def __set__(self, value):
-            self.thisptr.ReverseSolution(<bint> value)
+            cdef bint enabled = value
+            with self._lock:
+                self.thisptr.ReverseSolution(enabled)
 
     property PreserveCollinear:
         """ Should clipper preserve collinear vertices.
         More info: http://www.angusj.com/delphi/clipper/documentation/Docs/Units/ClipperLib/Classes/Clipper/Properties/PreserveCollinear.htm
         """
         def __get__(self):
-            return <bint> self.thisptr.PreserveCollinear()
+            with self._lock:
+                return <bint> self.thisptr.PreserveCollinear()
 
         def __set__(self, value):
-            self.thisptr.PreserveCollinear(<bint> value)
+            cdef bint enabled = value
+            with self._lock:
+                self.thisptr.PreserveCollinear(enabled)
 
     property StrictlySimple:
         """ Should polygons returned from Execute/Execute2 be strictly simple (True) or may be weakly simple (False).
         More info: http://www.angusj.com/delphi/clipper/documentation/Docs/Units/ClipperLib/Classes/Clipper/Properties/StrictlySimple.htm
         """
         def __get__(self):
-            return <bint> self.thisptr.StrictlySimple()
+            with self._lock:
+                return <bint> self.thisptr.StrictlySimple()
 
         def __set__(self, value):
-            self.thisptr.StrictlySimple(<bint> value)
+            cdef bint enabled = value
+            with self._lock:
+                self.thisptr.StrictlySimple(enabled)
 
 
 cdef class PyclipperOffset:
@@ -759,6 +779,7 @@ cdef class PyclipperOffset:
     More info: http://www.angusj.com/delphi/clipper/documentation/Docs/Units/ClipperLib/Classes/ClipperOffset/_Body.htm
     """
     cdef ClipperOffset *thisptr
+    cdef object _lock
 
     def __cinit__(self, double miter_limit=2.0, double arc_tolerance=0.25):
         """ Creates an instance of the ClipperOffset class.
@@ -766,6 +787,7 @@ cdef class PyclipperOffset:
         More info: http://www.angusj.com/delphi/clipper/documentation/Docs/Units/ClipperLib/Classes/ClipperOffset/Methods/Constructor.htm
         """
         log_action("Creating an ClipperOffset instance")
+        self._lock = _Lock()
         self.thisptr = new ClipperOffset(miter_limit, arc_tolerance)
 
     def __dealloc__(self):
@@ -782,7 +804,8 @@ cdef class PyclipperOffset:
         end_type  -- end type of added path
         """
         cdef Path c_path = _to_clipper_path(path)
-        self.thisptr.AddPath(c_path, join_type, end_type)
+        with self._lock:
+            self.thisptr.AddPath(c_path, join_type, end_type)
 
     def AddPaths(self, paths, JoinType join_type, EndType end_type):
         """ Add a list of paths.
@@ -794,7 +817,8 @@ cdef class PyclipperOffset:
         end_type  -- end type of added paths
         """
         cdef Paths c_paths = _to_clipper_paths(paths)
-        self.thisptr.AddPaths(c_paths, join_type, end_type)
+        with self._lock:
+            self.thisptr.AddPaths(c_paths, join_type, end_type)
 
     def Execute(self, double delta):
         """ Performs the offset operation and returns a list of offset paths.
@@ -808,7 +832,7 @@ cdef class PyclipperOffset:
         list of offset paths
         """
         cdef Paths c_solution
-        with nogil:
+        with self._lock, nogil:
             self.thisptr.Execute(c_solution, delta)
         return _from_clipper_paths(c_solution)
 
@@ -824,7 +848,7 @@ cdef class PyclipperOffset:
         PyPolyNode
         """
         cdef PolyTree solution
-        with nogil:
+        with self._lock, nogil:
             self.thisptr.Execute(solution, delta)
         return _from_poly_tree(solution)
 
@@ -833,7 +857,8 @@ cdef class PyclipperOffset:
 
         More info: http://www.angusj.com/delphi/clipper/documentation/Docs/Units/ClipperLib/Classes/ClipperOffset/Methods/Clear.htm
         """
-        self.thisptr.Clear()
+        with self._lock:
+            self.thisptr.Clear()
 
     property MiterLimit:
         """ Maximum distance in multiples of delta that vertices can be offset from their
@@ -842,10 +867,13 @@ cdef class PyclipperOffset:
         More info: http://www.angusj.com/delphi/clipper/documentation/Docs/Units/ClipperLib/Classes/ClipperOffset/Properties/MiterLimit.htm
         """
         def __get__(self):
-            return <double> self.thisptr.MiterLimit
+            with self._lock:
+                return <double> self.thisptr.MiterLimit
 
         def __set__(self, value):
-            self.thisptr.MiterLimit = <double> value
+            cdef double number = value
+            with self._lock:
+                self.thisptr.MiterLimit = number
 
     property ArcTolerance:
         """ Maximum acceptable imprecision when arcs are approximated in
@@ -854,10 +882,13 @@ cdef class PyclipperOffset:
         More info: http://www.angusj.com/delphi/clipper/documentation/Docs/Units/ClipperLib/Classes/ClipperOffset/Properties/ArcTolerance.htm
         """
         def __get__(self):
-            return self.thisptr.ArcTolerance
+            with self._lock:
+                return self.thisptr.ArcTolerance
 
         def __set__(self, value):
-            self.thisptr.ArcTolerance = value
+            cdef double number = value
+            with self._lock:
+                self.thisptr.ArcTolerance = number
 
 
 cdef _filter_polynode(pypolynode, result, filter_func=None):
